@@ -77,39 +77,171 @@ async def startup_event():
 @app.get("/")
 def dashboard():
     """
-    Simple status dashboard showing proxy configuration and portal health.
+    Advanced status dashboard showing proxy configuration, filters and available genres.
     """
     from fastapi.responses import HTMLResponse
+    import urllib.parse
     
+    # Try to get current genres
+    success, headers = authenticate()
+    available_genres = []
+    status_class = "offline"
+    status_text = "ERROR"
+    
+    if success:
+        cats = get_categories(headers)
+        if cats:
+            # Sort genres by title
+            available_genres = sorted(
+                [{"id": k, "title": v} for k, v in cats.items()],
+                key=lambda x: x["title"]
+            )
+            status_class = "online"
+            status_text = "ACTIVE"
+
     exclude_genres = FILTERS.get("exclude_genres", [])
     exclude_channels = FILTERS.get("exclude_channels", [])
     
+    # Filter out excluded genres from the quick links
+    filtered_genres = [g for g in available_genres if g["title"] not in exclude_genres]
+    
+    base_url = os.getenv("BASE_URL_PORT", "http://localhost:8080/")
+    if not base_url.endswith("/"):
+        base_url += "/"
+
     html = f"""
-    <html>
-        <head>
-            <title>Stalker2M3U Dashboard</title>
-            <style>
-                body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 40px auto; padding: 20px; background-color: #f4f7f9; }}
-                h1 {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }}
-                .card {{ background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }}
-                .status {{ display: inline-block; padding: 4px 12px; border-radius: 12px; font-weight: bold; font-size: 0.9em; }}
-                .online {{ background: #e8f5e9; color: #2e7d32; }}
-                .info-row {{ display: flex; justify-content: space-between; margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 5px; }}
-                .label {{ font-weight: bold; color: #7f8c8d; }}
-                .value {{ font-family: monospace; color: #34495e; }}
-                a {{ color: #3498db; text-decoration: none; }}
-                a:hover {{ text-decoration: underline; }}
-                ul {{ margin: 5px 0; padding-left: 20px; }}
-            </style>
-        </head>
-        <body>
-            <h1>Stalker2M3U Proxy Dashboard</h1>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Stalker2M3U | Proxy Dashboard</title>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+        <style>
+            :root {{
+                --bg-color: #0f172a;
+                --card-bg: #1e293b;
+                --text-primary: #f8fafc;
+                --text-secondary: #94a3b8;
+                --accent-color: #38bdf8;
+                --success-color: #22c55e;
+                --danger-color: #ef4444;
+                --border-color: #334155;
+            }}
             
+            * {{ box-sizing: border-box; }}
+            body {{ 
+                font-family: 'Inter', sans-serif; 
+                line-height: 1.6; 
+                max-width: 1000px; 
+                margin: 0 auto; 
+                padding: 40px 20px; 
+                background-color: var(--bg-color); 
+                color: var(--text-primary);
+            }}
+            
+            h1 {{ font-weight: 700; font-size: 2.5rem; margin-bottom: 0.5rem; color: var(--text-primary); letter-spacing: -0.025em; }}
+            h2 {{ font-weight: 600; font-size: 1.25rem; margin-top: 0; margin-bottom: 1.5rem; color: var(--accent-color); border-bottom: 1px solid var(--border-color); padding-bottom: 10px; }}
+            
+            .subtitle {{ color: var(--text-secondary); margin-bottom: 3rem; font-weight: 400; }}
+            
+            .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; margin-bottom: 32px; }}
+            
+            .card {{ 
+                background: var(--card-bg); 
+                padding: 24px; 
+                border-radius: 16px; 
+                border: 1px solid var(--border-color);
+                box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+                transition: transform 0.2s ease, border-color 0.2s ease;
+            }}
+            
+            .card:hover {{ border-color: var(--accent-color); }}
+            
+            .status {{ 
+                display: inline-flex; 
+                align-items: center;
+                padding: 4px 12px; 
+                border-radius: 9999px; 
+                font-weight: 600; 
+                font-size: 0.75rem;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+            }}
+            
+            .online {{ background: rgba(34, 197, 94, 0.1); color: var(--success-color); border: 1px solid rgba(34, 197, 94, 0.2); }}
+            .offline {{ background: rgba(239, 68, 68, 0.1); color: var(--danger-color); border: 1px solid rgba(239, 68, 68, 0.2); }}
+            
+            .info-row {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid rgba(51, 65, 85, 0.5); }}
+            .label {{ font-weight: 500; color: var(--text-secondary); font-size: 0.875rem; }}
+            .value {{ font-family: 'ui-monospace', monospace; color: var(--text-primary); font-size: 0.875rem; word-break: break-all; text-align: right; margin-left: 10px; }}
+            
+            .genre-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }}
+            .genre-tag {{ 
+                background: rgba(56, 189, 248, 0.05); 
+                border: 1px solid var(--border-color);
+                padding: 10px 16px; 
+                border-radius: 12px;
+                color: var(--text-primary);
+                text-decoration: none;
+                font-size: 0.875rem;
+                display: flex;
+                align-items: center;
+                transition: all 0.2s ease;
+            }}
+            
+            .genre-tag:hover {{ 
+                background: rgba(56, 189, 248, 0.1);
+                border-color: var(--accent-color);
+                transform: translateY(-2px);
+            }}
+            
+            .genre-tag::before {{ content: '●'; color: var(--accent-color); margin-right: 8px; font-size: 0.6rem; }}
+            
+            .exclusion-list {{ list-style: none; padding: 0; margin: 0; }}
+            .exclusion-item {{ 
+                padding: 8px 12px; 
+                background: rgba(239, 68, 68, 0.05); 
+                border-radius: 8px; 
+                margin-bottom: 8px; 
+                font-size: 0.8125rem; 
+                color: var(--text-secondary);
+                border: 1px solid rgba(239, 68, 68, 0.1);
+                display: flex;
+                align-items: center;
+            }}
+            .exclusion-item::before {{ content: '✕'; color: var(--danger-color); margin-right: 8px; font-weight: bold; }}
+            
+            .main-playlist-btn {{
+                background: var(--accent-color);
+                color: var(--bg-color);
+                padding: 12px 24px;
+                border-radius: 12px;
+                text-decoration: none;
+                font-weight: 600;
+                display: inline-flex;
+                align-items: center;
+                margin-top: 10px;
+                transition: opacity 0.2s ease;
+            }}
+            .main-playlist-btn:hover {{ opacity: 0.9; }}
+            
+            @media (max-width: 640px) {{
+                h1 {{ font-size: 2rem; }}
+                .grid {{ grid-template-columns: 1fr; }}
+            }}
+        </style>
+    </head>
+    <body>
+        <h1>Stalker2M3U Proxy Dashboard</h1>
+        <p class="subtitle">High-performance M3U proxy for Stalker Portals</p>
+        
+        <div class="grid">
             <div class="card">
                 <h2>Portal Connection</h2>
                 <div class="info-row">
                     <span class="label">Status</span>
-                    <span class="status online">ACTIVE</span>
+                    <span class="status {status_class}">{status_text}</span>
                 </div>
                 <div class="info-row">
                     <span class="label">Portal URL</span>
@@ -119,34 +251,48 @@ def dashboard():
                     <span class="label">STB MAC</span>
                     <span class="value">{MAC}</span>
                 </div>
+                <div class="info-row">
+                    <span class="label">Base URL</span>
+                    <span class="value">{base_url}</span>
+                </div>
+                <div style="margin-top: 20px;">
+                    <a href="/playlist.m3u" class="main-playlist-btn">
+                        <span style="margin-right: 8px;">📄</span> Download Full Playlist
+                    </a>
+                </div>
             </div>
 
-            <div class="card">
+            <div class="card" style="grid-row: span 2;">
                 <h2>Active Filters</h2>
                 <div class="info-row">
                     <span class="label">Excluded Genres</span>
-                    <span class="value">{len(exclude_genres)} items</span>
+                    <span class="value">{len(exclude_genres)}</span>
                 </div>
-                <ul>
-                    {"".join(f"<li>{g}</li>" for g in exclude_genres) if exclude_genres else "<li>None</li>"}
-                </ul>
-                <div class="info-row">
+                <div class="exclusion-list">
+                    {"".join(f'<div class="exclusion-item">{g}</div>' for g in exclude_genres) if exclude_genres else '<div class="info-row"><span class="value" style="text-align:left; color:var(--text-secondary)">None</span></div>'}
+                </div>
+                
+                <div class="info-row" style="margin-top: 24px;">
                     <span class="label">Excluded Channels</span>
-                    <span class="value">{len(exclude_channels)} items</span>
+                    <span class="value">{len(exclude_channels)}</span>
                 </div>
-                <ul>
-                    {"".join(f"<li>{c}</li>" for c in exclude_channels) if exclude_channels else "<li>None</li>"}
-                </ul>
+                <div class="exclusion-list">
+                    {"".join(f'<div class="exclusion-item">{c}</div>' for c in exclude_channels) if exclude_channels else '<div class="info-row"><span class="value" style="text-align:left; color:var(--text-secondary)">None</span></div>'}
+                </div>
             </div>
 
-            <div class="card">
-                <h2>Resources</h2>
-                <ul>
-                    <li>📄 <a href="/playlist.m3u">M3U Playlist</a></li>
-                    <li>🎾 <a href="/playlist.m3u?genre=Sports">Sports Only Playlist</a></li>
-                </ul>
+            <div class="card" style="grid-column: 1 / -1;">
+                <h2>Available Genre Playlists</h2>
+                <div class="genre-grid">
+                    {"".join(f'<a href="/playlist.m3u?genre={urllib.parse.quote(g["title"])}" class="genre-tag">{g["title"]}</a>' for g in filtered_genres) if filtered_genres else '<p style="color:var(--text-secondary)">No genres available or all filtered out.</p>'}
+                </div>
             </div>
-        </body>
+        </div>
+        
+        <p style="text-align: center; color: var(--text-secondary); font-size: 0.75rem; margin-top: 40px;">
+            Stalker2M3U v2.0 &bull; Running on FastAPI
+        </p>
+    </body>
     </html>
     """
     return HTMLResponse(content=html)

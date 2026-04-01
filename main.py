@@ -14,15 +14,6 @@ from fastapi.responses import PlainTextResponse, RedirectResponse
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("stalker2m3u")
 
-app = FastAPI()
-
-@app.on_event("startup")
-async def startup_event():
-    logger.info("*" * 50)
-    logger.info("Stalker2M3U Proxy Started!")
-    logger.info("M3U Playlist URL: http://<your-ip>:8080/playlist.m3u")
-    logger.info("*" * 50)
-
 PORTAL_URL = os.getenv("PORTAL_URL", "http://glotv.me/stalker_portal/server/load.php")
 MAC = os.getenv("MAC", "00:1A:79:05:B2:16")
 SERIAL = os.getenv("SERIAL", "062014N014137")
@@ -34,6 +25,19 @@ DEVICE_ID2 = os.getenv("DEVICE_ID2", "51C0AA6D99A09AA28EB3ED32D9D2BEE557EE791F5F
 _TOKEN = "AABBCCDD1234567890AABBCCDD123456"
 _SESSION = None
 _AUTH_HEADERS = None
+
+app = FastAPI()
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("=" * 60)
+    logger.info("STALKER2M3U PROXY INITIALIZING")
+    logger.info(f"PORTAL URL : {PORTAL_URL}")
+    logger.info(f"STB MAC    : {MAC}")
+    logger.info(f"STB MODEL  : {MODEL}")
+    logger.info(f"SERIAL     : {SERIAL}")
+    logger.info(f"PLAYLIST   : http://0.0.0.0:8080/playlist.m3u")
+    logger.info("=" * 60)
 
 def get_hw_version_2(mac, sn):
     return hashlib.sha1((mac.upper() + sn).encode()).hexdigest()

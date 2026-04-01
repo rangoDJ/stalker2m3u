@@ -1,6 +1,6 @@
 services:
   stalker2m3u:
-    build: .
+    image: ghcr.io/rangodj/stalker2m3u:latest
     container_name: stalker2m3u
     ports:
       - "8080:8080"

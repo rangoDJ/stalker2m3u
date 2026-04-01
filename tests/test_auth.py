@@ -5,7 +5,9 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from main import authenticate
+import pytest
 
+@pytest.mark.skipif(os.getenv("GITHUB_ACTIONS") == "true", reason="Live portal authentication typically blocked by datacenter IPs in CI")
 def test_portal_authentication():
     """
     Integration test to check if the Stalker Portal accepts the current authentication parameters.

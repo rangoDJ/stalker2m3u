@@ -173,8 +173,9 @@ def main():
     for g in genres:
         title = g.get("title")
         g_id = g.get("id")
-        playlist_link = f"{base_url}playlist.m3u?genre={urllib.parse.quote(title)}"
-        print(f"ID: {g_id:<5} | Genre: {title:<25} | Link: {playlist_link}")
+        # URL encode the genre name for the example link
+        encoded_genre = urllib.parse.quote(title, safe="")
+        print(f"ID: {g_id:<6} | Genre: {title:<20} | Link: {base_url}playlist.m3u?genre={encoded_genre}")
 
     print("-" * 60)
     print(f"\nGeneral Playlist: {base_url}playlist.m3u")

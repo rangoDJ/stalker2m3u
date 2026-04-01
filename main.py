@@ -284,7 +284,7 @@ def dashboard():
             <div class="card" style="grid-column: 1 / -1;">
                 <h2>Available Genre Playlists</h2>
                 <div class="genre-grid">
-                    {"".join(f'<a href="/playlist.m3u?genre={urllib.parse.quote(g["title"])}" class="genre-tag">{g["title"]}</a>' for g in filtered_genres) if filtered_genres else '<p style="color:var(--text-secondary)">No genres available or all filtered out.</p>'}
+                    {"".join(f'<a href="/playlist.m3u?genre={urllib.parse.quote(g["title"], safe="")}" class="genre-tag">{g["title"]}</a>' for g in filtered_genres) if filtered_genres else '<p style="color:var(--text-secondary)">No genres available or all filtered out.</p>'}
                 </div>
             </div>
         </div>
@@ -466,8 +466,11 @@ def get_playlist(request: Request, genre: str = None):
                       continue
 
                   # Optional filtering by genre (URL query param)
-                  if genre and genre.lower() not in cat_name.lower():
-                       continue
+                  if genre:
+                       req_genre = genre.strip().lower()
+                       chn_genre = cat_name.strip().lower()
+                       if req_genre not in chn_genre:
+                            continue
 
                   # Base64 encode the stream command
                   cmd_b64 = base64.urlsafe_b64encode(cmd.encode()).decode()

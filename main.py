@@ -89,10 +89,11 @@ class StalkerClient:
         hs_url = f'{PORTAL_URL}?type=stb&action=handshake&JsHttpRequest=1-xml'
         res = self._call(hs_url, use_token=False)
         if isinstance(res, dict):
-            js_data = res.get('js', {})
-            self.token = js_data.get('token', '')
-            if self.token:
-                logger.info(f"Handshake OK. Token: {self.token[:8]}...")
+            js_data = res.get('js')
+            if isinstance(js_data, dict):
+                self.token = js_data.get('token', '')
+                if self.token:
+                    logger.info(f"Handshake OK. Token: {self.token[:8]}...")
         
         sig = base64.b64encode(hashlib.sha256((DEVICE_ID + SERIAL).encode()).digest()).decode()
         ver = urllib.parse.quote("ImageDescription: 2.20.02-pub-520; ImageDate: Thu Apr 29 15:17:55 EEST 2021")
@@ -102,7 +103,8 @@ class StalkerClient:
         auth_url = f'{PORTAL_URL}?type=stb&action=get_profile&JsHttpRequest=1-xml&hd=1{params}'
         res = self._call(auth_url)
         
-        if isinstance(res, dict) and res.get('js', {}).get('status') == 2:
+        js_data_pre = res.get('js') if isinstance(res, dict) else None
+        if isinstance(js_data_pre, dict) and js_data_pre.get('status') == 2:
              logger.info("Status 2: Retrying with do_auth...")
              do_auth_url = f'{PORTAL_URL}?type=stb&action=do_auth&JsHttpRequest=1-xml{params}'
              res = self._call(do_auth_url)

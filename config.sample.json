@@ -1,0 +1,18 @@
+{
+  "PORTAL_URL": "http://glotv.me/stalker_portal/server/load.php",
+  "MAC": "00:1A:79:05:B2:16",
+  "SERIAL": "062014N014137",
+  "MODEL": "MAG520",
+  "DEVICE_ID": "51C0AA6D99A09AA28EB3ED32D9D2BEE557EE791F5F8BB7555B77218E220BBD92",
+  "DEVICE_ID2": "51C0AA6D99A09AA28EB3ED32D9D2BEE557EE791F5F8BB7555B77218E220BBD92",
+  "BASE_URL_PORT": "http://localhost:8080/",
+  "filters": {
+    "exclude_genres": [
+      "FOR ADULTS",
+      "TAMIL | INDIA"
+    ],
+    "exclude_channels": [
+      "Promotional Channel"
+    ]
+  }
+}

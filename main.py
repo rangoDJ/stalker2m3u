@@ -13,30 +13,143 @@ from fastapi.responses import PlainTextResponse, RedirectResponse
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("stalker2m3u")
 
-PORTAL_URL = os.getenv("PORTAL_URL", "http://glotv.me/stalker_portal/server/load.php")
-MAC = os.getenv("MAC", "00:1A:79:05:B2:16")
-SERIAL = os.getenv("SERIAL", "062014N014137")
-MODEL = os.getenv("MODEL", "MAG520")
-DEVICE_ID = os.getenv("DEVICE_ID", "51C0AA6D99A09AA28EB3ED32D9D2BEE557EE791F5F8BB7555B77218E220BBD92")
-DEVICE_ID2 = os.getenv("DEVICE_ID2", "51C0AA6D99A09AA28EB3ED32D9D2BEE557EE791F5F8BB7555B77218E220BBD92")
-
 # Global variables for session and token caching
 _TOKEN = "AABBCCDD1234567890AABBCCDD123456"
 _SESSION = None
 _AUTH_HEADERS = None
+_CATEGORIES = {} # Cache for genre ID -> Name mapping
+
+def load_config():
+    # Priority: config.json > environment variables > defaults
+    config = {
+        "PORTAL_URL": os.getenv("PORTAL_URL", "http://glotv.me/stalker_portal/server/load.php"),
+        "MAC": os.getenv("MAC", "00:1A:79:05:B2:16"),
+        "SERIAL": os.getenv("SERIAL", "062014N014137"),
+        "MODEL": os.getenv("MODEL", "MAG520"),
+        "DEVICE_ID": os.getenv("DEVICE_ID", "51C0AA6D99A09AA28EB3ED32D9D2BEE557EE791F5F8BB7555B77218E220BBD92"),
+        "DEVICE_ID2": os.getenv("DEVICE_ID2", "51C0AA6D99A09AA28EB3ED32D9D2BEE557EE791F5F8BB7555B77218E220BBD92"),
+        "filters": {
+            "exclude_genres": [],
+            "exclude_channels": []
+        }
+    }
+    
+    config_path = os.path.join(os.path.dirname(__file__), "config.json")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r") as f:
+                file_config = json.load(f)
+                config.update(file_config)
+            logger.info(f"Loaded configuration from {config_path}")
+        except Exception as e:
+            logger.error(f"Error loading config.json: {e}")
+            
+    return config
+
+# Load settings
+CONFIG = load_config()
+PORTAL_URL = CONFIG["PORTAL_URL"]
+MAC = CONFIG["MAC"]
+SERIAL = CONFIG["SERIAL"]
+MODEL = CONFIG["MODEL"]
+DEVICE_ID = CONFIG["DEVICE_ID"]
+DEVICE_ID2 = CONFIG["DEVICE_ID2"]
+FILTERS = CONFIG.get("filters", {})
 
 app = FastAPI()
 
 @app.on_event("startup")
 async def startup_event():
+    base_url = os.getenv("BASE_URL_PORT", "http://0.0.0.0:8080/")
+    if not base_url.endswith("/"):
+        base_url += "/"
+        
     logger.info("=" * 60)
     logger.info("STALKER2M3U PROXY INITIALIZING")
     logger.info(f"PORTAL URL : {PORTAL_URL}")
     logger.info(f"STB MAC    : {MAC}")
     logger.info(f"STB MODEL  : {MODEL}")
     logger.info(f"SERIAL     : {SERIAL}")
-    logger.info(f"PLAYLIST   : http://0.0.0.0:8080/playlist.m3u")
+    logger.info(f"DASHBOARD  : {base_url}")
+    logger.info(f"PLAYLIST   : {base_url}playlist.m3u")
     logger.info("=" * 60)
+
+@app.get("/")
+def dashboard():
+    """
+    Simple status dashboard showing proxy configuration and portal health.
+    """
+    from fastapi.responses import HTMLResponse
+    
+    exclude_genres = FILTERS.get("exclude_genres", [])
+    exclude_channels = FILTERS.get("exclude_channels", [])
+    
+    html = f"""
+    <html>
+        <head>
+            <title>Stalker2M3U Dashboard</title>
+            <style>
+                body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 40px auto; padding: 20px; background-color: #f4f7f9; }}
+                h1 {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }}
+                .card {{ background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }}
+                .status {{ display: inline-block; padding: 4px 12px; border-radius: 12px; font-weight: bold; font-size: 0.9em; }}
+                .online {{ background: #e8f5e9; color: #2e7d32; }}
+                .info-row {{ display: flex; justify-content: space-between; margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 5px; }}
+                .label {{ font-weight: bold; color: #7f8c8d; }}
+                .value {{ font-family: monospace; color: #34495e; }}
+                a {{ color: #3498db; text-decoration: none; }}
+                a:hover {{ text-decoration: underline; }}
+                ul {{ margin: 5px 0; padding-left: 20px; }}
+            </style>
+        </head>
+        <body>
+            <h1>Stalker2M3U Proxy Dashboard</h1>
+            
+            <div class="card">
+                <h2>Portal Connection</h2>
+                <div class="info-row">
+                    <span class="label">Status</span>
+                    <span class="status online">ACTIVE</span>
+                </div>
+                <div class="info-row">
+                    <span class="label">Portal URL</span>
+                    <span class="value">{PORTAL_URL}</span>
+                </div>
+                <div class="info-row">
+                    <span class="label">STB MAC</span>
+                    <span class="value">{MAC}</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Active Filters</h2>
+                <div class="info-row">
+                    <span class="label">Excluded Genres</span>
+                    <span class="value">{len(exclude_genres)} items</span>
+                </div>
+                <ul>
+                    {"".join(f"<li>{g}</li>" for g in exclude_genres) if exclude_genres else "<li>None</li>"}
+                </ul>
+                <div class="info-row">
+                    <span class="label">Excluded Channels</span>
+                    <span class="value">{len(exclude_channels)} items</span>
+                </div>
+                <ul>
+                    {"".join(f"<li>{c}</li>" for c in exclude_channels) if exclude_channels else "<li>None</li>"}
+                </ul>
+            </div>
+
+            <div class="card">
+                <h2>Resources</h2>
+                <ul>
+                    <li>📄 <a href="/playlist.m3u">M3U Playlist</a></li>
+                    <li>🎾 <a href="/playlist.m3u?genre=Sports">Sports Only Playlist</a></li>
+                </ul>
+            </div>
+        </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
 
 def get_hw_version_2(mac, sn):
     return hashlib.sha1((mac.upper() + sn).encode()).hexdigest()
@@ -91,6 +204,26 @@ def call_portal_api(url, headers):
             error_body = e.read().decode('utf-8', errors='replace')
             logger.debug(f"Error Body: {error_body}")
         return {}
+
+def get_categories(headers):
+    """
+    Fetch and cache genres/categories from the portal.
+    """
+    global _CATEGORIES
+    if _CATEGORIES:
+        return _CATEGORIES
+        
+    url = f"{PORTAL_URL}?type=itv&action=get_genres&JsHttpRequest=1-xml"
+    data = call_portal_api(url, headers)
+    genres = data.get("js", [])
+    
+    # Map ID -> Title
+    new_cats = {str(g.get("id")): g.get("title") for g in genres if g.get("id")}
+    if new_cats:
+        _CATEGORIES = new_cats
+        logger.info(f"Loaded {len(_CATEGORIES)} categories from portal.")
+        
+    return _CATEGORIES
 
 def authenticate(force=False):
     global _TOKEN, _AUTH_HEADERS
@@ -147,13 +280,16 @@ def authenticate(force=False):
     return False, auth_headers
 
 @app.get("/playlist.m3u", response_class=PlainTextResponse)
-def get_playlist(request: Request):
+def get_playlist(request: Request, genre: str = None):
     success, headers = authenticate()
     if not success:
          return "#EXTM3U\n#EXTINF:-1,Auth Failed\nhttp://error"
     
     channels = []
     page = 1
+    
+    # Fetch categories for group-title support
+    categories = get_categories(headers)
     
     # Loop over paginated channels
     while True:
@@ -166,20 +302,39 @@ def get_playlist(request: Request):
         if not items:
              break
              
-        for item in items:
+        for i, item in enumerate(items):
              cmd = item.get('cmd')
              name = item.get('name', 'Unknown Channel')
              if cmd and name:
+                  # Genre handling
+                  genre_id = str(item.get('tv_genre_id', ''))
+                  cat_name = categories.get(genre_id, 'Other')
+                  
+                  # Mandatory filters from config.json
+                  exclude_genres = FILTERS.get("exclude_genres", [])
+                  exclude_channels = FILTERS.get("exclude_channels", [])
+                  
+                  if any(eg.lower() in cat_name.lower() for eg in exclude_genres):
+                      continue
+                  if any(ec.lower() in name.lower() for ec in exclude_channels):
+                      continue
+
+                  # Optional filtering by genre (URL query param)
+                  if genre and genre.lower() not in cat_name.lower():
+                       continue
+
                   # Base64 encode the stream command
                   cmd_b64 = base64.urlsafe_b64encode(cmd.encode()).decode()
                   logo_url = item.get('logo', '')
                   
                   # Build our own proxy URL
                   # e.g., http://localhost:8080/stream/...
-                  base_url = str(request.base_url)
+                  base_url = os.getenv("BASE_URL_PORT", str(request.base_url))
+                  if not base_url.endswith("/"):
+                      base_url += "/"
                   proxy_url = f"{base_url}stream/{cmd_b64}"
                   
-                  extinf = f'#EXTINF:-1 tvg-logo="{logo_url}" tvg-id="{item.get("id", "")}","{name}"\n{proxy_url}'
+                  extinf = f'#EXTINF:-1 tvg-logo="{logo_url}" tvg-id="{item.get("id", "")}" group-title="{cat_name}","{name}"\n{proxy_url}'
                   channels.append(extinf)
                   
         # Pagination logic

@@ -1,0 +1,9 @@
+/__pycache__/
+*.pyc
+results.txt
+config.json
+.pytest_cache/
+.vscode/
+venv/
+.env
+.ipynb_checkpoints/

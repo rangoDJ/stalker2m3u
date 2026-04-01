@@ -6,7 +6,6 @@ import hashlib
 import base64
 import time
 import random
-import requests
 import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse
@@ -73,6 +72,25 @@ def get_common_headers():
         'Cache-Control': 'no-cache',
         'Pragma': 'no-cache',
     }
+
+def call_portal_api(url, headers):
+    """
+    Helper to perform a GET request using urllib and parse the JSON response.
+    """
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = resp.read().decode('utf-8', errors='replace')
+            if not body:
+                logger.error(f"Empty response from: {url}")
+                return {}
+            return json.loads(body)
+    except Exception as e:
+        logger.error(f"API Request Failed: {url} -> {e}")
+        if hasattr(e, 'read'):
+            error_body = e.read().decode('utf-8', errors='replace')
+            logger.debug(f"Error Body: {error_body}")
+        return {}
 
 def authenticate(force=False):
     global _TOKEN, _AUTH_HEADERS
@@ -141,40 +159,36 @@ def get_playlist(request: Request):
     while True:
         page_url = f"{PORTAL_URL}?type=itv&action=get_ordered_list&JsHttpRequest=1-xml&p={page}"
         logger.info(f"Fetching channels page {page}")
-        try:
-            r = requests.get(page_url, headers=headers, timeout=10)
-            data = r.json()
-            items = data.get("js", {}).get("data", [])
+        
+        data = call_portal_api(page_url, headers)
+        items = data.get("js", {}).get("data", [])
+        
+        if not items:
+             break
+             
+        for item in items:
+             cmd = item.get('cmd')
+             name = item.get('name', 'Unknown Channel')
+             if cmd and name:
+                  # Base64 encode the stream command
+                  cmd_b64 = base64.urlsafe_b64encode(cmd.encode()).decode()
+                  logo_url = item.get('logo', '')
+                  
+                  # Build our own proxy URL
+                  # e.g., http://localhost:8080/stream/...
+                  base_url = str(request.base_url)
+                  proxy_url = f"{base_url}stream/{cmd_b64}"
+                  
+                  extinf = f'#EXTINF:-1 tvg-logo="{logo_url}" tvg-id="{item.get("id", "")}","{name}"\n{proxy_url}'
+                  channels.append(extinf)
+                  
+        # Pagination logic
+        max_p = data.get("js", {}).get("max_page_items", 14)
+        if len(items) < int(max_p):
+            break
             
-            if not items:
-                 break
-                 
-            for item in items:
-                 cmd = item.get('cmd')
-                 name = item.get('name', 'Unknown Channel')
-                 if cmd and name:
-                      # Base64 encode the stream command
-                      cmd_b64 = base64.urlsafe_b64encode(cmd.encode()).decode()
-                      logo_url = item.get('logo', '')
-                      
-                      # Build our own proxy URL
-                      # e.g., http://localhost:8080/stream/...
-                      base_url = str(request.base_url)
-                      proxy_url = f"{base_url}stream/{cmd_b64}"
-                      
-                      extinf = f'#EXTINF:-1 tvg-logo="{logo_url}" tvg-id="{item.get("id", "")}","{name}"\n{proxy_url}'
-                      channels.append(extinf)
-                      
-            # Pagination logic
-            max_p = data.get("js", {}).get("max_page_items", 14)
-            if len(items) < int(max_p):
-                break
-                
-            page += 1
-            if page > 100: # Safety break just in case
-                break
-        except Exception as e:
-            logger.error(f"Error fetching channels at page {page}: {e}")
+        page += 1
+        if page > 100: # Safety break just in case
             break
 
     logger.info(f"Successfully generated playlist with {len(channels)} channels.")
@@ -199,17 +213,18 @@ def stream_proxy(cmd_b64: str):
     
     # Request the stream link
     link_url = f"{PORTAL_URL}?type=itv&action=create_link&cmd={urllib.parse.quote(cmd)}&JsHttpRequest=1-xml"
+    
     try:
-        r = requests.get(link_url, headers=headers, timeout=10)
-        data = r.json()
+        data = call_portal_api(link_url, headers)
         cmd_result = data.get('js', {}).get('cmd', '')
         
         # If the token expired and we get an error, re-auth and try once more.
         if not cmd_result:
-            authenticate(force=True)
-            r = requests.get(link_url, headers=_AUTH_HEADERS, timeout=10)
-            data = r.json()
-            cmd_result = data.get('js', {}).get('cmd', '')
+            logger.info("Retrying with forced re-authentication...")
+            success, new_headers = authenticate(force=True)
+            if success:
+                data = call_portal_api(link_url, new_headers)
+                cmd_result = data.get('js', {}).get('cmd', '')
 
         if cmd_result:
              # cmd often looks like: ffmpeg http://url

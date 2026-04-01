@@ -284,7 +284,7 @@ def dashboard():
             <div class="card" style="grid-column: 1 / -1;">
                 <h2>Available Genre Playlists</h2>
                 <div class="genre-grid">
-                    {"".join(f'<a href="/playlist.m3u?genre={urllib.parse.quote(g["title"], safe="")}" class="genre-tag">{g["title"]}</a>' for g in filtered_genres) if filtered_genres else '<p style="color:var(--text-secondary)">No genres available or all filtered out.</p>'}
+                    {"".join(f'<a href="/playlist.m3u?genre_id={g["id"]}" class="genre-tag">{g["title"]}</a>' for g in filtered_genres) if filtered_genres else '<p style="color:var(--text-secondary)">No genres available or all filtered out.</p>'}
                 </div>
             </div>
         </div>
@@ -426,7 +426,7 @@ def authenticate(force=False):
     return False, auth_headers
 
 @app.get("/playlist.m3u", response_class=PlainTextResponse)
-def get_playlist(request: Request, genre: str = None):
+def get_playlist(request: Request, genre: str = None, genre_id: str = None):
     success, headers = authenticate()
     if not success:
          return "#EXTM3U\n#EXTINF:-1,Auth Failed\nhttp://error"
@@ -438,16 +438,19 @@ def get_playlist(request: Request, genre: str = None):
     categories = get_categories(headers)
     
     # Map genre name to genre ID if filtering is requested
-    target_category_id = None
-    if genre:
+    target_category_id = genre_id
+    if genre and not target_category_id:
         import urllib.parse
         decoded_genre = urllib.parse.unquote(genre).strip().lower()
         for cat_id, cat_title in categories.items():
             if decoded_genre == cat_title.strip().lower():
                 target_category_id = cat_id
-                logger.info(f"Filtering by category ID: {target_category_id} ('{cat_title}')")
+                logger.info(f"Filtering by category ID mapping: {target_category_id} ('{cat_title}')")
                 break
     
+    if target_category_id:
+        logger.info(f"Filtering by genre_id: {target_category_id}")
+
     # Loop over paginated channels
     while True:
         page_url = f"{PORTAL_URL}?type=itv&action=get_ordered_list&JsHttpRequest=1-xml&p={page}"
@@ -479,8 +482,11 @@ def get_playlist(request: Request, genre: str = None):
                   if any(ec.lower() in name.lower() for ec in exclude_channels):
                       continue
 
-                  # Optional filtering by genre (URL query param)
-                  if genre:
+                  # Optional filtering by genre (URL query param or ID)
+                  if target_category_id:
+                       if str(item.get('tv_genre_id', '')) != str(target_category_id):
+                            continue
+                  elif genre:
                        req_genre = genre.strip().lower()
                        chn_genre = cat_name.strip().lower()
                        if req_genre not in chn_genre:

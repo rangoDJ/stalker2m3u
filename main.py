@@ -1,5 +1,6 @@
 import os
 import urllib.parse
+import urllib.request
 import json
 import hashlib
 import base64
@@ -59,12 +60,9 @@ def get_common_headers():
     }
 
 def authenticate(force=False):
-    global _TOKEN, _SESSION, _AUTH_HEADERS
+    global _TOKEN, _AUTH_HEADERS
     if _AUTH_HEADERS and not force:
         return True, _AUTH_HEADERS
-
-    if not _SESSION:
-        _SESSION = requests.Session()
     
     headers = get_common_headers()
     
@@ -74,8 +72,10 @@ def authenticate(force=False):
     hs_headers['Cookie'] = f'sn={SERIAL}; mac={MAC}; stb_lang=en; timezone=UTC'
     
     try:
-        resp = _SESSION.get(hs_url, headers=hs_headers, timeout=10)
-        data = resp.json()
+        req = urllib.request.Request(hs_url, headers=hs_headers)
+        resp = urllib.request.urlopen(req, timeout=10)
+        body = resp.read().decode('utf-8', errors='replace')
+        data = json.loads(body)
         new_token = data.get('js', {}).get('token')
         if new_token:
             _TOKEN = new_token
@@ -97,14 +97,17 @@ def authenticate(force=False):
     auth_headers['Cookie'] = f'PHPSESSID=null; sn={urllib.parse.quote(SERIAL)}; mac={urllib.parse.quote(MAC)}; stb_lang=en; timezone=UTC;'
     
     try:
-        resp = _SESSION.get(auth_url, headers=auth_headers, timeout=10)
-        data = resp.json()
-        if data.get('js', {}).get('id'):
+        req = urllib.request.Request(auth_url, headers=auth_headers)
+        resp = urllib.request.urlopen(req, timeout=10)
+        body = resp.read().decode('utf-8', errors='replace')
+        data = json.loads(body)
+        if data.get('js') and data.get('js').get('id'):
             print(f"Auth success! Portal ID: {data.get('js').get('id')}")
             _AUTH_HEADERS = auth_headers
             return True, _AUTH_HEADERS
         else:
             print("Auth failed - no ID returned.")
+            print(f"Response: {body}")
     except Exception as e:
         print(f"Profile error: {e}")
         
@@ -124,7 +127,7 @@ def get_playlist(request: Request):
         page_url = f"{PORTAL_URL}?type=itv&action=get_ordered_list&JsHttpRequest=1-xml&p={page}"
         print(f"Fetching channels page {page}")
         try:
-            r = _SESSION.get(page_url, headers=headers, timeout=10)
+            r = requests.get(page_url, headers=headers, timeout=10)
             data = r.json()
             items = data.get("js", {}).get("data", [])
             
@@ -181,14 +184,14 @@ def stream_proxy(cmd_b64: str):
     # Request the stream link
     link_url = f"{PORTAL_URL}?type=itv&action=create_link&cmd={urllib.parse.quote(cmd)}&JsHttpRequest=1-xml"
     try:
-        r = _SESSION.get(link_url, headers=headers, timeout=10)
+        r = requests.get(link_url, headers=headers, timeout=10)
         data = r.json()
         cmd_result = data.get('js', {}).get('cmd', '')
         
         # If the token expired and we get an error, re-auth and try once more.
         if not cmd_result:
             authenticate(force=True)
-            r = _SESSION.get(link_url, headers=_AUTH_HEADERS, timeout=10)
+            r = requests.get(link_url, headers=_AUTH_HEADERS, timeout=10)
             data = r.json()
             cmd_result = data.get('js', {}).get('cmd', '')
 

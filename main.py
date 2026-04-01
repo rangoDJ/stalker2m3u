@@ -7,10 +7,21 @@ import base64
 import time
 import random
 import requests
+import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger("stalker2m3u")
+
 app = FastAPI()
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("*" * 50)
+    logger.info("Stalker2M3U Proxy Started!")
+    logger.info("M3U Playlist URL: http://<your-ip>:8080/playlist.m3u")
+    logger.info("*" * 50)
 
 PORTAL_URL = os.getenv("PORTAL_URL", "http://glotv.me/stalker_portal/server/load.php")
 MAC = os.getenv("MAC", "00:1A:79:05:B2:16")
@@ -80,7 +91,7 @@ def authenticate(force=False):
         if new_token:
             _TOKEN = new_token
     except Exception as e:
-        print(f"Handshake error: {e}")
+        logger.error(f"Handshake error: {e}")
         
     # Step 2: Get Profile (Auth)
     api_sig = get_api_sig_params(MAC, SERIAL, MODEL, DEVICE_ID)
@@ -102,14 +113,14 @@ def authenticate(force=False):
         body = resp.read().decode('utf-8', errors='replace')
         data = json.loads(body)
         if data.get('js') and data.get('js').get('id'):
-            print(f"Auth success! Portal ID: {data.get('js').get('id')}")
+            logger.info(f"Auth success! Portal ID: {data.get('js').get('id')}")
             _AUTH_HEADERS = auth_headers
             return True, _AUTH_HEADERS
         else:
-            print("Auth failed - no ID returned.")
-            print(f"Response: {body}")
+            logger.error("Auth failed - no ID returned.")
+            logger.debug(f"Response: {body}")
     except Exception as e:
-        print(f"Profile error: {e}")
+        logger.error(f"Profile error: {e}")
         
     return False, auth_headers
 
@@ -125,7 +136,7 @@ def get_playlist(request: Request):
     # Loop over paginated channels
     while True:
         page_url = f"{PORTAL_URL}?type=itv&action=get_ordered_list&JsHttpRequest=1-xml&p={page}"
-        print(f"Fetching channels page {page}")
+        logger.info(f"Fetching channels page {page}")
         try:
             r = requests.get(page_url, headers=headers, timeout=10)
             data = r.json()
@@ -159,9 +170,10 @@ def get_playlist(request: Request):
             if page > 100: # Safety break just in case
                 break
         except Exception as e:
-            print(f"Error fetching channels at page {page}: {e}")
+            logger.error(f"Error fetching channels at page {page}: {e}")
             break
 
+    logger.info(f"Successfully generated playlist with {len(channels)} channels.")
     # Construct the final M3U
     m3u = "#EXTM3U\n" + "\n".join(channels)
     return m3u
@@ -202,6 +214,6 @@ def stream_proxy(cmd_b64: str):
              return RedirectResponse(url=actual_url)
              
     except Exception as e:
-        print(f"Stream generation error: {e}")
+        logger.error(f"Stream generation error: {e}")
         
     return PlainTextResponse("Stream link not found or portal error.", status_code=404)

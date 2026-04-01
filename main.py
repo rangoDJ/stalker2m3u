@@ -434,12 +434,26 @@ def get_playlist(request: Request, genre: str = None):
     channels = []
     page = 1
     
-    # Fetch categories for group-title support
+    # Fetch categories
     categories = get_categories(headers)
+    
+    # Map genre name to genre ID if filtering is requested
+    target_category_id = None
+    if genre:
+        import urllib.parse
+        decoded_genre = urllib.parse.unquote(genre).strip().lower()
+        for cat_id, cat_title in categories.items():
+            if decoded_genre == cat_title.strip().lower():
+                target_category_id = cat_id
+                logger.info(f"Filtering by category ID: {target_category_id} ('{cat_title}')")
+                break
     
     # Loop over paginated channels
     while True:
         page_url = f"{PORTAL_URL}?type=itv&action=get_ordered_list&JsHttpRequest=1-xml&p={page}"
+        if target_category_id:
+            page_url += f"&category={target_category_id}"
+            
         logger.info(f"Fetching channels page {page}")
         
         data = call_portal_api(page_url, headers)
